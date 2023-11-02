@@ -1,0 +1,540 @@
+//https://hsp.tv/play/pforum.php?mode=pastwch&num=85475
+#module
+
+// 文字列に数字以外が入っているかを調べる命令
+// 第2パラに1を指定すると数字以外を除去して返します。
+
+#deffunc checkint str string , int remove	
+
+sdim unicode,strlen(string)*2+2
+sdim buf_int,strlen(string)
+
+if string="" : return -1	//文字列が空だったら-1が返る
+
+dim char,strlen(string)+1
+r=limit(remove,0,1)
+flag_int=0
+cnvstow unicode,string
+foreach char
+		char.cnt = wpeek(unicode,cnt*2)
+		if char.cnt=0 : break
+		if r=0 {
+			if char.cnt<48 | 57<char.cnt : flag_int=-1 : break	//数字以外が入っていれば返り値は-1
+		}if r=1 {
+			if char.cnt<48 | 57<char.cnt :goto *@f
+		}
+		
+		buf_int+=cnvwtos(char.cnt)
+*@
+loop
+
+if flag_int!-1 : flag_int=int(buf_int)
+if buf_int="" : flag_int=-1		//文字のみなら-1
+
+return flag_int	//statに結果を出力
+
+#global
+
+//https://hsp.tv/play/pforum.php?mode=pastwch&num=80249
+#module	
+	#defcfunc Rndint int _Rnds, int _Rnde
+			Rnds=_Rnds
+			Rnde=_Rnde
+			if Rnds>Rnde {
+				sw=Rnds
+				Rnds=Rnde
+				Rnde=sw
+			}
+			return rnd(Rnde+1-Rnds)+Rnds
+#global
+
+//https://hsp.tv/play/pforum.php?mode=pastwch&num=42969
+//----------------------------------------------------------------------------
+#define global ctype isAlphabet( %1 )		( ( ( 0x40 < %1 ) & ( %1 < 0x5b ) ) or ( ( 0x60 < %1 ) & ( %1 < 0x7b ) ) )
+#define global ctype isNumeric( %1 )		( 0x30 <= %1 & %1 <= 0x39 )
+//----------------------------------------------------------------------------
+#module "stack"
+#deffunc push str _data						// スタックに登録する
+	stack( sindex ) = _data
+	sIndex++
+	return
+#defcfunc pop								// スタックから取り出す
+	sIndex--
+	return stack( sIndex )
+#defcfunc isEmpty							// スタックが空か確認する
+	if sIndex = 0 : return 1
+	return 0
+#defcfunc lastStack							// 最後に入れたスタックの内容参照
+	return stack( sIndex - 1 )
+#defcfunc stackLevel						// 現在のスタック使用サイズを取得
+	return sIndex
+#deffunc stackList local data, local i		// デバグ用スタック内容リスト表示
+	data = ""
+	for i,0,sIndex
+		data += "" + i + ":[" + stack( i ) + "]\n"
+	next
+	dialog data
+	return
+#deffunc stackInit int _length				// 初期化
+	sdim stack, 64, _length
+	return
+#global
+//----------------------------------------------------------------------------
+#module "var"
+#deffunc setVar str _name, double _value	// 変数登録 未登録なら自動登録
+	vIndex = -1
+	foreach varName
+		if varName( cnt ) = _name {
+			varName( cnt ) = _name
+			varValue( cnt ) = _value
+			return
+		}
+		if vIndex = -1 & varName( cnt ) = "" : vIndex = cnt
+	loop
+	varName( vIndex ) = _name
+	varValue( vIndex ) = _value
+	return
+#defcfunc getVar str _name					// 変数内容取得
+	vIndex = -1
+	foreach varName
+		if varName( cnt ) = _name : return varValue( cnt )
+		if vIndex = -1 & varName( cnt ) = "" : vIndex = cnt
+	loop
+	varName( vIndex ) = _name
+	varValue( vIndex ) = 0.0
+	return 0.0
+#defcfunc varConv str _src, local src		// 与えられた文字列を判別して変数内容か、数値化した値を返す
+	src = _src
+	if isAlphabet( peek( src, 0 ) ) = 1 : return getVar( src )
+	return double( src )
+#deffunc varList local data, local i		// デバグ用変数リスト表示
+	data = ""
+	for i,0,vIndex
+		data += "" + i + ":[" + varName( i ) + "] = " + varValue( i ) + "\n"
+	next
+	dialog data
+	return
+#deffunc varInit int _length				// 初期化
+	sdim varName, 64, _length
+	ddim varValue, _length
+	return
+#global
+//----------------------------------------------------------------------------
+#module "rpn"
+#defcfunc rpnConv str _src				// 数式を逆ポーランド表記に変換する
+	index = 0							// 文字の参照位置のインデックス
+	rpn   = ""							// 変換結果を記録する文字列変数
+	buf   = ""							// 一時的に数字を覚えておく文字列変数
+	f     = "(" + _src + ")"			// ループ内で処理完了する為の処置
+	flg   = 0							// 直前処理文字が「計算用の記号」と確定出来る時、1になる
+	while( peek( f, index ) != 0 ) 	// 文字列の最後は必ず0なので、0まで続ける
+		value = strmid( f, index, 1 )	// インデックス位置の1文字取得
+		if value = "<" | value = ">" {				// < か > だった時は、<= か、>=の可能性がある
+			if strmid( f, index + 1, 1 ) = "=" {	// < か > の次の文字が=だったなら
+				value += "="						// 判定文字列に「=」をつけて
+				index++								// 文字参照位置を進めておく
+			}
+		}
+		if value = "=" | value = "!" {				// = か ! だった時は、== か != の可能性がある
+			if strmid( f, index + 1, 1 ) = "=" {	// = か ! の次の文字が=だったなら
+				value += "="						// 判定文字列に「=」をつけて
+				index++								// 文字参照位置を進めておく
+			}
+		}
+		switch value
+		case "+"  : case "-"				// 足し算、割り算
+		case "<"  : case ">"				// より大きい、より小さい
+		case "<=" : case ">="				// 以上、以下
+		case "==" : case "!="				// 同じ、同じじゃない
+		case "&"  : case "|"				// and 、or
+		case "^"  : case "="				// xor 、代入
+			if flg = 1 & ( value = "+" | value = "-" ) {		// 直前の記号が計算記号なのに、足し算引き算記号が来た(プラスマイナス表現かもしれない)
+				if lastStack() = "=" {							// =の後に+-が入ったなら、
+					rpn += "0 "									// 手前に0を入れて調整
+					push value									// 引き算として記号はプッシュ
+					swbreak
+				}												// =の後に+-が入ったなら、手前に0を入れて調整
+				if lastStack() = "(" and stackLevel() <= 1 {	// 直前の記号が「(」で、スタックレベルが1以下だったら・・・
+					rpn += "0 "									// それは「-(n+...」の表現なので、「0-(n+...」の様に改変する
+					push value									// 引き算として記号はプッシュ
+					swbreak
+				} else {										// そうでなければ
+					buf += value								// 通常の「±表現の記号」と思われるので、保持
+					flg = 0										// 数値扱いなので、フラグは0に。
+					swbreak
+				}
+			}
+			flg   = 1					// ここに来た記号は、確実に計算用なので、1
+			if buf != "" { rpn += buf + " " : buf = "" }	// 文字が溜まっていたら、結果に出力、クリア
+			while( isEmpty() = 0 )		// スタックが空になるまで
+				if lastStack() = "("  : _break	// 「(」 なら終了
+				if lastStack() = "<"  : _break	// 「<」 なら終了
+				if lastStack() = ">"  : _break	// 「>」 なら終了
+				if lastStack() = "<=" : _break	// 「<=」なら終了
+				if lastStack() = ">=" : _break	// 「>=」なら終了
+				if lastStack() = "==" : _break	// 「==」なら終了
+				if lastStack() = "!=" : _break	// 「!=」なら終了
+				if lastStack() = "&"  : _break	// 「&」 なら終了
+				if lastStack() = "|"  : _break	// 「|」 なら終了
+				if lastStack() = "^"  : _break	// 「^」 なら終了
+				if lastStack() = "!"  : _break	// 「!」 なら終了
+				if lastStack() = "="  : _break	// 「=」 なら終了
+				rpn += pop() + " "		// そうでないならぶちまける
+			wend
+			push value					// 記号をスタックに積む
+			swbreak
+		case "*" : case "/"				// 掛け算、割り算
+		case "!"						// not
+			flg   = 1					// 掛け算割り算の記号は、確実に計算用なので、1
+			if buf != "" { rpn += buf + " " : buf = "" }	// 文字が溜まっていたら、結果に出力、クリア
+			while( isEmpty() = 0 )		// スタックが空になるまで
+				if lastStack() = "*" or lastStack() = "/" or lastStack() = "!" { // 前に入れた記号が掛け算割り算Not記号なら・・・
+					rpn += pop() + " "						// ぶちまける
+				} else {
+					_break				// そうでなければ終了
+				}
+			wend
+			push value					// 記号をスタックに積む
+			swbreak
+		case "("						// カッコ開く
+			flg   = 1					//「(」記号は、確実に計算用なので、1
+			if buf != "" : buf += " "	// 文字が溜まっていたら、区切りの空白を追加しておく
+			push value
+			swbreak
+		case ")"
+			flg   = 0					//「)」の次は、記号が入って当然なので0でいい
+			if buf != "" { rpn += buf + " " : buf = "" }	// 文字が溜まっていたら、結果に出力、クリア
+			while( isEmpty() = 0 )				// スタックが空になるまで
+				data = pop()					// スタックからデータを取り
+				if data = "(" : _break			// 「(」なら終了
+				rpn += data + " "				// そうでないならぶちまける
+			wend
+			swbreak
+		case " "						// 空白は無視->結果に余分な空白が付かない
+			swbreak
+		default
+			buf += value				// 数字が1桁じゃない事も有るので、とりあえず数字を覚えていく
+			flg   = 0					// ここに来たという事は、少なくとも計算用記号ではないので、0
+			swbreak
+		swend
+		index++
+	wend
+	return rpn
+//----------------------------------------------------------------------------
+#defcfunc rpncomp str _src					// 逆ポーランド表記の計算式を計算する
+	rpn   = _src
+	index = 0								// 文字の参照位置のインデックス
+	ans   = 0.0								// 答えを保持する変数。割り算等が有るので、実数で。
+	buf   = ""								// 一時的に数字を覚えておく文字列変数
+	work1 = 0.0								// 計算用変数。実数。
+	work2 = 0.0								// 計算用変数。実数。
+	while( peek( rpn, index ) != 0 ) 		// 文字列の最後は必ず0なので、0まで続ける
+		value = strmid( rpn, index, 1 )	// インデックス位置の1文字取得
+		if value = "+" | value = "-" {					// +,-の時
+			if strmid( rpn, index + 1, 1 ) != " " {	// その次が空白で無いなら±表現
+				buf += value							// 数値として記録して
+				index++									// 次へ
+				_continue
+			}
+		}
+		if value = "<" | value = ">" {					// < か > だった時は、<= か、>=の可能性がある
+			if strmid( rpn, index + 1, 1 ) = "=" {	// < か > の次の文字が=だったなら
+				value += "="							// 判定文字列に「=」をつけて
+				index++									// 文字参照位置を進めておく
+			}
+		}
+		if value = "=" | value = "!" {					// = か ! だった時は、== か != の可能性がある
+			if strmid( rpn, index + 1, 1 ) = "=" {	// = か ! の次の文字が=だったなら
+				value += "="							// 判定文字列に「=」をつけて
+				index++									// 文字参照位置を進めておく
+			}
+		}
+		switch value
+		case "<"
+			work2 = varConv( pop() )		// 手前の
+			work1 = varConv( pop() )		// 2件のスタックを取り出し
+			if work1 < work2 { push "1" }	// 判定が正
+			else             { push "0" }	// 判定が否
+			swbreak
+		case ">"
+			work2 = varConv( pop() )		// 手前の
+			work1 = varConv( pop() )		// 2件のスタックを取り出し
+			if work1 > work2 { push "1" }	// 判定が正
+			else             { push "0" }	// 判定が否
+			swbreak
+		case "<="
+			work2 = varConv( pop() )		// 手前の
+			work1 = varConv( pop() )		// 2件のスタックを取り出し
+			if work1 <= work2 { push "1" }	// 判定が正
+			else              { push "0" }	// 判定が否
+			swbreak
+		case ">="
+			work2 = varConv( pop() )		// 手前の
+			work1 = varConv( pop() )		// 2件のスタックを取り出し
+			if work1 >= work2 { push "1" }	// 判定が正
+			else              { push "0" }	// 判定が否
+			swbreak
+		case "=="
+			work2 = varConv( pop() )		// 手前の
+			work1 = varConv( pop() )		// 2件のスタックを取り出し
+			if work1 = work2 { push "1" }	// 判定が正
+			else             { push "0" }	// 判定が否
+			swbreak
+		case "!="
+			work2 = varConv( pop() )		// 手前の
+			work1 = varConv( pop() )		// 2件のスタックを取り出し
+			if work1 != work2 { push "1" }	// 判定が正
+			else              { push "0" }	// 判定が否
+			swbreak
+		case "&"
+			work2 = int( varConv( pop() ) )	// 手前の
+			work1 = int( varConv( pop() ) ) // 2件のスタックを取り出し
+			push "" + ( work1 & work2 )		// 計算してスタックに戻す
+			swbreak
+		case "|"
+			work2 = int( varConv( pop() ) )	// 手前の
+			work1 = int( varConv( pop() ) ) // 2件のスタックを取り出し
+			push "" + ( work1 | work2 )		// 計算してスタックに戻す
+			swbreak
+		case "^"
+			work2 = int( varConv( pop() ) )	// 手前の
+			work1 = int( varConv( pop() ) ) // 2件のスタックを取り出し
+			push "" + ( work1 ^ work2 )		// 計算してスタックに戻す
+			swbreak
+		case "!"
+			work2 = int( varConv( pop() ) )			// Notは1件分にのみ適用
+			push "" + ( ( 0xffffffff ^ work2 ) )	// 計算してスタックに戻す
+			swbreak
+		case "="
+			work2 = varConv( pop() )		// 代入する値取得
+			setVar pop(), work2			// 変数名取得して代入
+			push "1"						// 計算では無いが、処理完了的意味で1を返す
+			swbreak
+		case "+"
+			work2 = varConv( pop() )		// 手前の
+			work1 = varConv( pop() )		// 2件のスタックを取り出し
+			push "" + ( work1 + work2 )		// 計算してスタックに戻す
+			swbreak
+		case "-"
+			work2 = varConv( pop() )		// 手前の
+			work1 = varConv( pop() )		// 2件のスタックを取り出し
+			push "" + ( work1 - work2 )		// 計算してスタックに戻す
+			swbreak
+		case "*"
+			work2 = varConv( pop() )		// 手前の
+			work1 = varConv( pop() )		// 2件のスタックを取り出し
+			push "" + ( work1 * work2 )		// 計算してスタックに戻す
+			swbreak
+		case "/"
+			work2 = varConv( pop() )		// 手前の
+			work1 = varConv( pop() )		// 2件のスタックを取り出し
+			if work2 = 0.0 {				// 割る側が0なら計算できないのでエラー
+				dialog "Error : Divide by zero.", 1
+				return 0.0
+			}
+			push "" + ( work1 / work2 )		// 計算してスタックに戻す
+			swbreak
+		case " "							// 空白は区切り記号として扱う
+			if buf != "" { push buf : buf = "" }
+			swbreak
+		default
+			buf += value
+			swbreak
+		swend
+		index++
+	wend
+	return  varConv( pop() )				// 最後にスタックに残った値が、答え
+//----------------------------------------------------------------------------
+#defcfunc compute str _src					// 計算式を逆ポーランド表記に変換して、それを計算する
+	return int( rpncomp( rpnconv( _src ) ) )
+#global
+//----------------------------------------------------------------------------
+#module "function"
+#defcfunc getIndexOpen str _source
+	source    = _source				// 元文字列
+	index     = strLen( source )	// 文字参照位置
+	value     = 0					// 参照中の文字
+	fFunc     = 0					// 関数の始まりの可能性の有る「(」を見つけた際に1
+	oIndex    = 0					// 関数の始まり位置
+	while ( index > 0 )				// 文字参照位置が0より大きい間繰り返す
+		value = peek( source, index )								// 1キャラクタ取得
+		if fFunc = 1 {												// 関数可能性フラグが立っていて
+			if value = ' ' { index-- : _continue }							// 空白なら無視
+			if isAlphabet( value ) = 0 & isNumeric( value ) = 0 {			// 英文字でなく、数字でも無いなら、関数可能性が消えました。
+				fFunc    = 0												// 　可能性フラグを下げ
+				oIndex = 0													// 　可能性位置をクリア
+				_continue													// 　この記号こそが関数の引数開始かも知れないのでやりなおし
+			}
+			if isAlphabet( value ) = 1 | isNumeric( value ) = 1 : _break	// 英文字か数字なら、そこが関数の引数開始位置でしょう。
+		} else {
+			if value = '(' { oIndex = index : fFunc = 1 }			// 「(」だったら、関数の引数開始かもしれない
+		}
+		index--														// 参照位置を進める
+	wend
+	return oIndex
+#defcfunc getIndexName str _source, int _index
+	source    = _source				// 元文字列
+	index     = _index				// 文字参照位置
+	value     = 0					// 参照中の文字
+	fFunc     = 0					// 関数名の上に居るかどうか
+	while ( index > 0 )				// 文字参照位置が0より大きい間繰り返す
+		value = peek( source, index )				// 1キャラクタ取得
+		index--										// 参照位置を進める(先に進めるので、必要があれば後で戻す)
+		if fFunc = 1 {								// 関数名と思われる文字の上に居る時・・・
+			if isNumeric ( value ) = 1 : _continue	// 数字なら、まだ。
+			if isAlphabet( value ) = 1 : _continue	// 英字なら、まだ。
+			return index + 2						// ここまで来たら、この1つ前までが関数名の始まり(参照位置を先に進めた分も戻す)
+		} else {
+			if value != ' ' : fFunc = 1				// 空白じゃない部分が登場したら、関数名上に辿り着いた。
+		}
+	wend
+	return 0						// 終了位置が見つけられなかったら、とりあえず0でも返す
+#defcfunc getIndexClose str _source, int _index
+	source    = _source				// 元文字列
+	index     = _index				// 文字参照位置
+	value     = 0					// 参照中の文字
+	cNest     = 0					// カッコの左右のつじつまカウンタ
+	while ( peek( source, index ) != 0 )	// 文字列の終わりは必ず0なので、そこまで進む
+		value = peek( source, index )		// 1キャラクタ取得
+		if value = '(' : cNest++			// ( なら、一段レベルアップ
+		if value = ')' : cNest--			// ) なら、一段レベルダウン
+		if cNest = 0 : return index			// ±0になったら、そこが終了位置
+		index++								// 文字参照位置を進める
+	wend
+	return 0						// 終了位置が見つけられなかったら、とりあえず0でも返す
+#deffunc devideFunc str _source, var str1, var func, var arg, var str2
+	source = _source					// 元文字列
+	srcLen = strlen( source )			// 文字列サイズ
+	fOpen  = getIndexOpen ( source )	// 関数の引数開始「(」取得
+	if fOpen <= 0 {						// 無ければ、関数は無い。
+		str1 = source
+		func = ""
+		arg  = ""
+		str2 = ""
+	} else {
+		fName  = getIndexName ( source, fOpen - 1 )				// 関数名位地取得
+		fClose = getIndexClose( source, fOpen )					// 関数の引数終了「)」位地取得
+		str1 = strmid( source, 0, fName              )	// 関数より手前の文字列取得
+		func = strmid( source, fName, fOpen  - fName     )	// 関数名文字列取得
+		arg  = strmid( source, fOpen  + 1, fClose - fOpen - 1 )	// 関数引数取得(カッコヌキ)
+		str2 = strmid( source, fClose + 1, srcLen - fClose    )	// 関数より後文字列取得
+	}
+	return
+#defcfunc rTrim str _source
+	source = _source
+	index  = 0
+	value  = 0
+	while( peek( source, index ) != 0 )
+		value = peek( source, index )
+		if value = ' ' or value = '\t' : poke source, index, 0
+		index++
+	wend
+	return source
+#deffunc divideArg str _source, var arg, var str1
+	source = _source
+	index  = 0
+	while( peek( source, index ) != 0 )
+		if peek( source, index ) = ',' {
+			arg  = strmid( source, 0, index )
+			str1 = strmid( source, index + 1, strlen( source ) - index )
+			return
+		}
+		index++
+	wend
+	arg  = source
+	str1 = ""
+	return
+#global
+//----------------------------------------------------------------------------
+	// モジュール初期化
+	stackInit 100							// スタック最大100件で初期化
+	varInit 100								// 変数最大100個で初期化
+//----------------------------------------------------------------------------
+	randomize	// 乱数を使うので、とりあえずつけとく
+	title "Vip Language v0.1"
+	nowline = 1
+	nowscript = "raw"
+	source = "ret = text(\"文字列\"+\"a\")"
+	while( 1 )
+		devideFunc source, str1, func, arg, str2	// 関数、引数と、それ以前、その後を分割
+		if func = "" : _break							// 関数名が無ければ、関数は無かった
+		gosub *execute									// 関数名別処理呼び出し
+		source = str1 + result + str2					// 結果を組み立てる
+	wend
+	result = compute( source )	// 最後に残った式を処理する
+	stop
+*execute
+	func = rTrim( func )		// 名前の最後に空白があるなら消す
+	switch func
+		case "rand"	// rand関数
+			gosub *frand
+			swbreak
+		case "pixel_set"	// pixel_set関数
+			gosub *fpixel_set
+			swbreak
+		case "box"	// boxf関数
+			gosub *fbox
+			swbreak
+		case "text"	// text関数
+			gosub *ftext
+			swbreak
+	swend
+	return
+*frand
+	divideArg arg, arg1, arg				// 最初の引数を取り出す
+	divideArg arg, arg2, arg				// 次の引数を取り出す
+	result = Rndint(compute(arg1),compute(arg2))	// 引数を計算し、実際にrnd関数に当てはめて結果を取得する
+	logmes result
+	return
+*fpixel_set
+	divideArg arg, arg1, arg				// 最初の引数を取り出す
+	divideArg arg, arg2, arg				// 次の引数を取り出す
+	color 255, 0, 0
+	pset compute(arg1),compute(arg2)	// 取得した引数を元にpset実行
+	color 0,0,0
+	result = 1								// 成功という事で1でも返しておく
+	return
+*fbox
+	divideArg arg, arg1, arg				// 最初の引数を取り出す
+	divideArg arg, arg2, arg				// 次の引数を取り出す
+	divideArg arg, arg3, arg				// 次の引数を取り出す
+	divideArg arg, arg4, arg				// 次の引数を取り出す
+	color 255, 0, 0
+	boxf compute(arg1), compute(arg2), compute(arg3), compute(arg4)	// 取得した引数を元にpset実行
+	color 0,0,0
+	result = 1								// 成功という事で1でも返しておく
+	return
+*ftext
+	divideArg arg, arg1, arg				// 最初の引数を取り出す
+	divideArg arg, arg2, arg				// 次の引数を取り出す
+	_str = arg1
+	gosub *checkstr
+	arg1 = _str2
+	mes arg1
+	result = 1								// 成功という事で1でも返しておく
+	return
+*error
+	dialog errmsg+"\nLine: "+nowline+"\nFile: "+nowscript,1,"Error"
+	end
+*checkstr
+	_str2 = ""
+	repeat
+		getstr gtst,_str,Idx,'+'
+		
+		rs = instr(gtst,0,"\"")
+		if rs!-1 {
+			getstr gtst,_str,Idx+rs+1,'"'
+			Idx += strsize+rs+2
+			res(cnt) = gtst
+			_lparc++
+		}else{
+			Idx += strsize
+			res(cnt) = ""
+		}
+		_str2 += gtst
+		if strsize = 0 : break
+	loop		
+	logmes _str2
+	if (_lparc == 0):errmsg = "文字列はちゃんとクォートで囲ってくださいな。。。":goto *error
+	if _lparc\2 :errmsg = "クォートの書き方が変みたいですよん。。。":goto *error
+	return
